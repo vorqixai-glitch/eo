@@ -1,0 +1,623 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useChat } from "@ai-sdk/react";
+import { DefaultChatTransport, type UIMessage } from "ai";
+import { useQuery } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
+import { getThreadMessages } from "@/lib/chat.functions";
+import { getMergedPersonas, type Persona } from "@/lib/personas";
+import { TRANSLATIONS, type LanguageType } from "@/lib/translations";
+import { exportChatToPdf } from "@/lib/pdf-service";
+import { auth } from "@/integrations/firebase/client";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+import {
+  ArrowUp,
+  ChevronDown,
+  ChevronRight,
+  Code2,
+  Cpu,
+  FileText,
+  Globe,
+  ImageIcon,
+  Link2,
+  Loader2,
+  Sparkles,
+  Square,
+  Users,
+  Wrench,
+  Youtube,
+} from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { PromptBuilderPane } from "./prompt-builder-pane";
+
+type DbMessage = { id: string; role: string; content: string; created_at: string };
+
+const MODELS = [
+  { id: "google/gemini-3-flash-preview", label: "Gemini 3 Flash", hint: "Fast · default" },
+  { id: "google/gemini-2.5-pro", label: "Gemini 2.5 Pro", hint: "Smarter" },
+  { id: "openai/gpt-5-mini", label: "GPT-5 mini", hint: "Balanced" },
+  { id: "openai/gpt-5", label: "GPT-5", hint: "Most capable" },
+];
+
+function toUIMessage(row: DbMessage): UIMessage {
+  return {
+    id: row.id,
+    role: row.role as UIMessage["role"],
+    parts: [{ type: "text", text: row.content }],
+  };
+}
+
+export function ChatView({
+  threadId,
+  onOpenArtifact,
+  activeArtifactId,
+}: {
+  threadId: string;
+  onOpenArtifact: (id: string) => void;
+  activeArtifactId: string | null;
+}) {
+  const getMsgs = useServerFn(getThreadMessages);
+  const messagesQ = useQuery({
+    queryKey: ["thread-messages", threadId],
+    queryFn: () => getMsgs({ data: { threadId } }),
+  });
+
+  const initialMessages = useMemo<UIMessage[]>(
+    () => (messagesQ.data?.messages ?? []).map(toUIMessage),
+    [messagesQ.data],
+  );
+
+  if (messagesQ.isLoading) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  if (messagesQ.error) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-sm text-destructive">
+        Failed to load conversation.
+      </div>
+    );
+  }
+
+  return (
+    <ChatViewInner
+      threadId={threadId}
+      title={messagesQ.data?.thread.title ?? "New chat"}
+      initialModel={messagesQ.data?.thread.model ?? MODELS[0].id}
+      initialPersona={messagesQ.data?.thread.persona_id ?? "default"}
+      initialMessages={initialMessages}
+      onOpenArtifact={onOpenArtifact}
+      activeArtifactId={activeArtifactId}
+    />
+  );
+}
+
+function ChatViewInner({
+  threadId,
+  title,
+  initialModel,
+  initialPersona,
+  initialMessages,
+  onOpenArtifact,
+  activeArtifactId,
+}: {
+  threadId: string;
+  title: string;
+  initialModel: string;
+  initialPersona: string;
+  initialMessages: UIMessage[];
+  onOpenArtifact: (id: string) => void;
+  activeArtifactId: string | null;
+}) {
+  const [model, setModel] = useState(initialModel);
+  const [personaId, setPersonaId] = useState(initialPersona);
+  const [showPromptBuilder, setShowPromptBuilder] = useState(false);
+  const [lang, setLang] = useState<LanguageType>("en");
+  const [personas, setPersonas] = useState<Persona[]>([]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const storedLang = localStorage.getItem("moss_lang") as LanguageType;
+      if (storedLang && ["en", "es", "fr", "de", "zh", "ja"].includes(storedLang)) {
+        setLang(storedLang);
+      }
+      setPersonas(getMergedPersonas());
+    }
+
+    const handleLangChange = (e: Event) => {
+      const customEvent = e as CustomEvent<LanguageType>;
+      if (customEvent.detail) setLang(customEvent.detail);
+    };
+
+    const handlePersonasChange = (e: Event) => {
+      const customEvent = e as CustomEvent<Persona[]>;
+      if (customEvent.detail) setPersonas(customEvent.detail);
+    };
+
+    window.addEventListener("moss_lang_changed", handleLangChange);
+    window.addEventListener("moss_personas_changed", handlePersonasChange);
+    return () => {
+      window.removeEventListener("moss_lang_changed", handleLangChange);
+      window.removeEventListener("moss_personas_changed", handlePersonasChange);
+    };
+  }, []);
+
+  const t = (key: string) => {
+    return TRANSLATIONS[lang]?.[key] || TRANSLATIONS["en"]?.[key] || key;
+  };
+
+  const modelRef = useRef(model);
+  const personaRef = useRef(personaId);
+  useEffect(() => {
+    modelRef.current = model;
+  }, [model]);
+  useEffect(() => {
+    personaRef.current = personaId;
+  }, [personaId]);
+
+  const transport = useMemo(
+    () =>
+      new DefaultChatTransport({
+        api: "/api/chat",
+        prepareSendMessagesRequest: async ({ messages, id }) => {
+          const user = auth.currentUser;
+          const token = user ? await user.getIdToken() : null;
+          const headers: Record<string, string> = {};
+          if (token) headers.Authorization = `Bearer ${token}`;
+          return {
+            body: {
+              threadId: id,
+              messages,
+              model: modelRef.current,
+              personaId: personaRef.current,
+            },
+            headers,
+          };
+        },
+      }),
+    [],
+  );
+
+  const { messages, sendMessage, status, stop, error } = useChat({
+    id: threadId,
+    messages: initialMessages,
+    transport,
+    onError: (e) => toast.error(e.message || "Chat error"),
+  });
+
+  useEffect(() => {
+    if (error) toast.error(error.message);
+  }, [error]);
+
+  // Auto-open newly created artifacts
+  const openedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    for (const m of messages) {
+      for (const part of m.parts ?? []) {
+        const p = part as { type: string; toolName?: string; output?: unknown };
+        if (
+          typeof p.type === "string" &&
+          p.type.startsWith("tool-create_artifact") &&
+          p.output &&
+          typeof p.output === "object"
+        ) {
+          const out = p.output as { id?: string };
+          if (out.id && !openedRef.current.has(out.id)) {
+            openedRef.current.add(out.id);
+            onOpenArtifact(out.id);
+          }
+        }
+      }
+    }
+  }, [messages, onOpenArtifact]);
+
+  const [input, setInput] = useState("");
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages, status]);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, [threadId, status]);
+
+  const isLoading = status === "submitted" || status === "streaming";
+
+  async function handleSubmit(e?: React.FormEvent) {
+    e?.preventDefault();
+    const text = input.trim();
+    if (!text || isLoading) return;
+    setInput("");
+    await sendMessage({ text });
+  }
+
+  return (
+    <div className="flex-1 flex min-h-0 w-full overflow-hidden">
+      {/* Main Chat Column */}
+      <div className="flex-1 flex flex-col min-h-0 border-r border-border/40">
+        <header className="border-b border-border/40 px-6 py-3 flex items-center gap-3">
+          <Sparkles className="h-4 w-4 text-primary" />
+          <h1 className="font-medium truncate flex-1">{title}</h1>
+
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => exportChatToPdf(title, messages)}
+            className="h-8 gap-1.5 text-xs rounded-xl px-2.5 font-medium transition-all"
+            title="Download conversation PDF transcript"
+          >
+            <FileText className="h-3.5 w-3.5 text-primary" />
+            <span>Export PDF</span>
+          </Button>
+
+          <Button
+            variant={showPromptBuilder ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => setShowPromptBuilder(!showPromptBuilder)}
+            className="h-8 gap-1.5 text-xs rounded-xl px-2.5 font-medium transition-all"
+          >
+            <Cpu className="h-3.5 w-3.5 text-primary" />
+            <span>{t("promptArchitect")}</span>
+          </Button>
+
+          <Select value={personaId} onValueChange={setPersonaId}>
+            <SelectTrigger className="h-8 w-auto gap-1 text-xs">
+              <Users className="h-3.5 w-3.5" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent align="end" className="max-h-96">
+              {personas.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  <span className="mr-1.5">{p.emoji}</span>
+                  <span className="font-medium">{p.name}</span>
+                  <span className="ml-2 text-xs text-muted-foreground">{p.tagline}</span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </header>
+
+        <div ref={scrollRef} className="flex-1 overflow-y-auto">
+          <div className="mx-auto max-w-3xl px-6 py-8 space-y-6">
+            {messages.length === 0 && <EmptyState lang={lang} />}
+            {messages.map((m) => (
+              <MessageBubble
+                key={m.id}
+                message={m}
+                onOpenArtifact={onOpenArtifact}
+                activeArtifactId={activeArtifactId}
+              />
+            ))}
+            {status === "submitted" && (
+              <div className="flex items-center gap-2 text-muted-foreground text-sm">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {t("thinking")}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="border-t border-border">
+          <form onSubmit={handleSubmit} className="mx-auto max-w-3xl px-6 py-4">
+            <div className="rounded-2xl border border-input bg-background shadow-sm focus-within:ring-1 focus-within:ring-ring">
+              <Textarea
+                ref={inputRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSubmit();
+                  }
+                }}
+                placeholder={t("messagePlaceholder")}
+                rows={1}
+                className="min-h-[52px] max-h-48 resize-none border-0 bg-transparent focus-visible:ring-0 shadow-none"
+              />
+              <div className="flex items-center justify-between px-2 pb-2">
+                <Select value={model} onValueChange={setModel}>
+                  <SelectTrigger className="h-8 w-auto border-0 bg-transparent shadow-none focus:ring-0 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MODELS.map((m) => (
+                      <SelectItem key={m.id} value={m.id}>
+                        <span className="font-medium">{m.label}</span>
+                        <span className="ml-2 text-xs text-muted-foreground">{m.hint}</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {isLoading ? (
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="secondary"
+                    onClick={() => stop()}
+                    aria-label="Stop"
+                  >
+                    <Square className="h-3.5 w-3.5" />
+                  </Button>
+                ) : (
+                  <Button type="submit" size="icon-sm" disabled={!input.trim()} aria-label="Send">
+                    <ArrowUp className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+            </div>
+            <p className="mt-2 text-[11px] text-muted-foreground text-center">
+              {t("webSearchEnabled")}
+            </p>
+          </form>
+        </div>
+      </div>
+
+      {/* Prompt Architect Side Panel */}
+      {showPromptBuilder && (
+        <PromptBuilderPane
+          onClose={() => setShowPromptBuilder(false)}
+          onInsertPrompt={(text) => {
+            setInput(text);
+            setTimeout(() => {
+              inputRef.current?.focus();
+            }, 50);
+          }}
+          onSendToSwarm={async (text) => {
+            setInput("");
+            await sendMessage({ text });
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function EmptyState({ lang }: { lang: LanguageType }) {
+  const t = (key: string) => {
+    return TRANSLATIONS[lang]?.[key] || TRANSLATIONS["en"]?.[key] || key;
+  };
+
+  return (
+    <div className="pt-8">
+      <div className="text-center mb-8 max-w-xl mx-auto space-y-4">
+        <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 border border-primary/20 shadow-[0_0_15px_rgba(16,185,129,0.25)]">
+          <Sparkles className="h-6 w-6 text-primary animate-pulse" />
+        </div>
+        <h2 className="text-2xl font-black tracking-tight">{t("swarmTitle")}</h2>
+        <p className="text-sm text-muted-foreground leading-relaxed px-4">{t("emptyPrompt")}</p>
+      </div>
+    </div>
+  );
+}
+
+type ToolPart = {
+  type: string;
+  toolName?: string;
+  toolCallId?: string;
+  state?: string;
+  input?: unknown;
+  output?: unknown;
+  errorText?: string;
+};
+
+function MessageBubble({
+  message,
+  onOpenArtifact,
+  activeArtifactId,
+}: {
+  message: UIMessage;
+  onOpenArtifact: (id: string) => void;
+  activeArtifactId: string | null;
+}) {
+  const isUser = message.role === "user";
+  const parts = message.parts ?? [];
+
+  if (isUser) {
+    const text = parts.map((p) => (p.type === "text" ? p.text : "")).join("");
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[85%] whitespace-pre-wrap text-[15px] leading-relaxed rounded-2xl bg-primary text-primary-foreground px-4 py-2.5">
+          {text}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {parts.map((part, i) => {
+        if (part.type === "text") {
+          return (
+            <div
+              key={i}
+              className="prose prose-sm dark:prose-invert max-w-none prose-p:my-2 prose-pre:my-2 prose-headings:mt-4"
+            >
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{part.text}</ReactMarkdown>
+            </div>
+          );
+        }
+        const p = part as ToolPart;
+        if (typeof p.type === "string" && p.type.startsWith("tool-")) {
+          const name = p.type.slice("tool-".length);
+          return (
+            <ToolCallBlock
+              key={i}
+              name={name}
+              part={p}
+              onOpenArtifact={onOpenArtifact}
+              activeArtifactId={activeArtifactId}
+            />
+          );
+        }
+        return null;
+      })}
+    </div>
+  );
+}
+
+function toolMeta(name: string) {
+  switch (name) {
+    case "create_artifact":
+      return { label: "Creating artifact", Icon: FileText };
+    case "update_artifact":
+      return { label: "Updating artifact", Icon: FileText };
+    case "web_search":
+      return { label: "Searching the web", Icon: Globe };
+    case "generate_image":
+      return { label: "Generating image", Icon: ImageIcon };
+    case "fetch_url":
+      return { label: "Reading URL", Icon: Link2 };
+    case "youtube_transcript":
+      return { label: "Fetching YouTube transcript", Icon: Youtube };
+    case "run_javascript":
+      return { label: "Running JavaScript", Icon: Code2 };
+    case "delegate_to_agent":
+      return { label: "Delegating to sub-agent", Icon: Users };
+    default:
+      return { label: name, Icon: Wrench };
+  }
+}
+
+function ToolCallBlock({
+  name,
+  part,
+  onOpenArtifact,
+  activeArtifactId,
+}: {
+  name: string;
+  part: ToolPart;
+  onOpenArtifact: (id: string) => void;
+  activeArtifactId: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const { label, Icon } = toolMeta(name);
+  const isDone = part.state === "output-available" || part.state === "output-error";
+  const isError =
+    part.state === "output-error" ||
+    Boolean(part.output && typeof part.output === "object" && "error" in (part.output as object));
+
+  // Special rich renderers for known outputs
+  const output = part.output as
+    | {
+        id?: string;
+        title?: string;
+        kind?: string;
+        version?: number;
+        url?: string;
+        prompt?: string;
+        results?: Array<{ title: string; url: string; snippet: string }>;
+        error?: string;
+      }
+    | undefined;
+
+  return (
+    <div className="rounded-lg border border-border bg-muted/40 text-sm overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-muted/60"
+      >
+        {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+        <Icon className="h-4 w-4 text-primary" />
+        <span className="flex-1 text-left truncate">
+          {label}
+          {output?.title ? ` — ${output.title}` : ""}
+          {output?.results
+            ? ` — ${output.results.length} result${output.results.length === 1 ? "" : "s"}`
+            : ""}
+        </span>
+        {!isDone && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+        {isError && <span className="text-xs text-destructive">error</span>}
+      </button>
+
+      {/* Rich inline preview for artifact/image regardless of open */}
+      {(name === "create_artifact" || name === "update_artifact") && output?.id && (
+        <div className="px-3 pb-3">
+          <button
+            type="button"
+            onClick={() => onOpenArtifact(output.id!)}
+            className={cn(
+              "w-full text-left rounded-md border border-border p-3 bg-background hover:border-primary transition",
+              activeArtifactId === output.id && "border-primary ring-1 ring-primary/40",
+            )}
+          >
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">
+              {output.kind}
+              {output.version ? ` · v${output.version}` : ""}
+            </div>
+            <div className="font-medium">{output.title}</div>
+            <div className="text-xs text-primary mt-1">Open in side panel →</div>
+          </button>
+        </div>
+      )}
+
+      {name === "generate_image" && output?.url && (
+        <div className="px-3 pb-3">
+          <img
+            src={output.url}
+            alt={output.prompt ?? "generated"}
+            className="rounded-md border border-border max-h-96"
+          />
+        </div>
+      )}
+
+      {name === "web_search" && output?.results && output.results.length > 0 && (
+        <div className="px-3 pb-3 space-y-2">
+          {output.results.slice(0, 4).map((r, i) => (
+            <a
+              key={i}
+              href={r.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block rounded-md border border-border p-2 hover:border-primary bg-background"
+            >
+              <div className="text-sm font-medium truncate">{r.title}</div>
+              <div className="text-xs text-muted-foreground truncate">{r.url}</div>
+              <div className="text-xs text-muted-foreground line-clamp-2 mt-1">{r.snippet}</div>
+            </a>
+          ))}
+        </div>
+      )}
+
+      {open && (
+        <div className="px-3 pb-3 border-t border-border/60 pt-2 space-y-2">
+          {part.input != null && (
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Input</div>
+              <pre className="text-xs bg-background rounded p-2 overflow-auto max-h-40">
+                {JSON.stringify(part.input, null, 2)}
+              </pre>
+            </div>
+          )}
+          {part.output != null && (
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                Output
+              </div>
+              <pre className="text-xs bg-background rounded p-2 overflow-auto max-h-60">
+                {JSON.stringify(part.output, null, 2)}
+              </pre>
+            </div>
+          )}
+          {part.errorText && <div className="text-xs text-destructive">{part.errorText}</div>}
+        </div>
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,6 @@
+{
+  "name": "moss",
+  "description": "An award-winning, production-ready full-stack AI platform with swarm agents, 3D live themes, and long-context code planning.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
