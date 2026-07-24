@@ -1,8 +1,13 @@
 import { createFileRoute, useNavigate, redirect } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
-import { signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
+import {
+  signInWithPopup,
+  GoogleAuthProvider,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  updateProfile,
+} from "firebase/auth";
 import { auth } from "@/integrations/firebase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,14 +37,14 @@ function AuthPage() {
   const [displayName, setDisplayName] = useState("");
   const [busy, setBusy] = useState(false);
 
-  async function handleSignIn(e: React.FormEvent) {
+  async function handleSignIn(e: React.FormEvent, path: string = "/chat") {
     e.preventDefault();
     setBusy(true);
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      navigate({ to: "/chat" });
-    } catch (error: any) {
-      toast.error(error.message);
+      navigate({ to: path });
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : "An error occurred");
       setBusy(false);
     }
   }
@@ -52,8 +57,8 @@ function AuthPage() {
       await updateProfile(user, { displayName: displayName || email.split("@")[0] });
       toast.success("Account created. You're signed in.");
       navigate({ to: "/chat" });
-    } catch (error: any) {
-      toast.error(error.message);
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : "An error occurred");
       setBusy(false);
     }
   }
@@ -64,8 +69,8 @@ function AuthPage() {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
       navigate({ to: "/chat" });
-    } catch (error: any) {
-      toast.error(error.message ?? "Google sign-in failed");
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : "Google sign-in failed");
       setBusy(false);
     }
   }
@@ -96,15 +101,22 @@ function AuthPage() {
             Moss
           </div>
           <Tabs defaultValue="signin" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="signin">Sign in</TabsTrigger>
-              <TabsTrigger value="signup">Create account</TabsTrigger>
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="signin" className="text-xs">
+                Sign in
+              </TabsTrigger>
+              <TabsTrigger value="signup" className="text-xs">
+                Sign up
+              </TabsTrigger>
+              <TabsTrigger value="admin" className="text-xs">
+                Admin
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="signin">
-              <form className="space-y-3 mt-4" onSubmit={handleSignIn}>
+              <form className="space-y-3 mt-4" onSubmit={(e) => handleSignIn(e, "/chat")}>
                 <div className="space-y-1.5">
-                  <Label htmlFor="si-email">Email</Label>
+                  <Label htmlFor="si-email">Email (Customer)</Label>
                   <Input
                     id="si-email"
                     type="email"
@@ -126,7 +138,7 @@ function AuthPage() {
                   />
                 </div>
                 <Button type="submit" className="w-full" disabled={busy}>
-                  {busy ? "Signing in…" : "Sign in"}
+                  {busy ? "Signing in…" : "Customer Sign in"}
                 </Button>
               </form>
             </TabsContent>
@@ -143,7 +155,7 @@ function AuthPage() {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="su-email">Email</Label>
+                  <Label htmlFor="su-email">Email (Customer)</Label>
                   <Input
                     id="su-email"
                     type="email"
@@ -166,7 +178,41 @@ function AuthPage() {
                   />
                 </div>
                 <Button type="submit" className="w-full" disabled={busy}>
-                  {busy ? "Creating…" : "Create account"}
+                  {busy ? "Creating…" : "Customer Sign up"}
+                </Button>
+              </form>
+            </TabsContent>
+
+            <TabsContent value="admin">
+              <form className="space-y-3 mt-4" onSubmit={(e) => handleSignIn(e, "/dashboard")}>
+                <div className="space-y-1.5">
+                  <Label htmlFor="admin-email">Admin Email</Label>
+                  <Input
+                    id="admin-email"
+                    type="email"
+                    required
+                    autoComplete="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="admin-pw">Admin Password</Label>
+                  <Input
+                    id="admin-pw"
+                    type="password"
+                    required
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                </div>
+                <Button
+                  type="submit"
+                  className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
+                  disabled={busy}
+                >
+                  {busy ? "Signing in…" : "Admin Sign in"}
                 </Button>
               </form>
             </TabsContent>

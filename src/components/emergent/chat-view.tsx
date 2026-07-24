@@ -3,8 +3,9 @@ import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { getThreadMessages } from "@/lib/chat.functions";
+import { getThreadMessages, type DbMessage } from "@/lib/chat.functions";
 import { getMergedPersonas, type Persona } from "@/lib/personas";
+import { ChatViewSkeleton } from "@/components/ui/skeleton-loaders";
 import { TRANSLATIONS, type LanguageType } from "@/lib/translations";
 import { exportChatToPdf } from "@/lib/pdf-service";
 import { auth } from "@/integrations/firebase/client";
@@ -26,6 +27,7 @@ import {
   Code2,
   Cpu,
   FileText,
+  Download,
   Globe,
   ImageIcon,
   Link2,
@@ -39,14 +41,12 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { PromptBuilderPane } from "./prompt-builder-pane";
-
-type DbMessage = { id: string; role: string; content: string; created_at: string };
+import { SkillConnectors } from "./skill-connectors";
 
 const MODELS = [
   { id: "google/gemini-3-flash-preview", label: "Gemini 3 Flash", hint: "Fast · default" },
   { id: "google/gemini-2.5-pro", label: "Gemini 2.5 Pro", hint: "Smarter" },
-  { id: "openai/gpt-5-mini", label: "GPT-5 mini", hint: "Balanced" },
-  { id: "openai/gpt-5", label: "GPT-5", hint: "Most capable" },
+  { id: "google/gemini-3.1-pro-preview", label: "Gemini 3.1 Pro", hint: "Advanced Reasoning" },
 ];
 
 function toUIMessage(row: DbMessage): UIMessage {
@@ -78,11 +78,7 @@ export function ChatView({
   );
 
   if (messagesQ.isLoading) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <ChatViewSkeleton />;
   }
   if (messagesQ.error) {
     return (
@@ -124,6 +120,11 @@ function ChatViewInner({
 }) {
   const [model, setModel] = useState(initialModel);
   const [personaId, setPersonaId] = useState(initialPersona);
+  const [enabledPlugins, setEnabledPlugins] = useState<string[]>([
+    "web_search",
+    "run_javascript",
+    "fetch_url",
+  ]);
   const [showPromptBuilder, setShowPromptBuilder] = useState(false);
   const [lang, setLang] = useState<LanguageType>("en");
   const [personas, setPersonas] = useState<Persona[]>([]);
@@ -160,13 +161,42 @@ function ChatViewInner({
   };
 
   const modelRef = useRef(model);
+
+  const exportChatToJson = () => {
+    const data = {
+      threadId: id,
+      title,
+      model: modelRef.current,
+      personaId: personaRef.current,
+      plugins: pluginsRef.current,
+      messages: messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+        parts: m.parts,
+      })),
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `chat-export-${id}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const personaRef = useRef(personaId);
+  const pluginsRef = useRef(enabledPlugins);
   useEffect(() => {
     modelRef.current = model;
   }, [model]);
   useEffect(() => {
     personaRef.current = personaId;
   }, [personaId]);
+  useEffect(() => {
+    pluginsRef.current = enabledPlugins;
+  }, [enabledPlugins]);
 
   const transport = useMemo(
     () =>
@@ -183,6 +213,7 @@ function ChatViewInner({
               messages,
               model: modelRef.current,
               personaId: personaRef.current,
+              plugins: pluginsRef.current,
             },
             headers,
           };
@@ -257,6 +288,17 @@ function ChatViewInner({
           <Button
             variant="ghost"
             size="sm"
+            onClick={exportChatToJson}
+            className="h-8 gap-1.5 text-xs rounded-xl px-2.5 font-medium transition-all"
+            title="Download JSON summary"
+          >
+            <Download className="h-3.5 w-3.5 text-primary" />
+            <span>Export Data</span>
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => exportChatToPdf(title, messages)}
             className="h-8 gap-1.5 text-xs rounded-xl px-2.5 font-medium transition-all"
             title="Download conversation PDF transcript"
@@ -274,6 +316,8 @@ function ChatViewInner({
             <Cpu className="h-3.5 w-3.5 text-primary" />
             <span>{t("promptArchitect")}</span>
           </Button>
+
+          <SkillConnectors enabledPlugins={enabledPlugins} setEnabledPlugins={setEnabledPlugins} />
 
           <Select value={personaId} onValueChange={setPersonaId}>
             <SelectTrigger className="h-8 w-auto gap-1 text-xs">

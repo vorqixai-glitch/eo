@@ -24,7 +24,7 @@ export const requireFirebaseAuth = createMiddleware({ type: "function" }).server
     }
 
     const decoded = await adminAuth.verifyIdToken(token);
-    
+
     return next({
       context: {
         db: adminDb,

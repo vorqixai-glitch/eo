@@ -1,10 +1,13 @@
-import * as admin from "firebase-admin";
+import { initializeApp, getApps, getApp } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
+import { getAuth } from "firebase-admin/auth";
 
-if (!admin.apps.length) {
-  admin.initializeApp({
-    projectId: process.env.FIREBASE_PROJECT_ID || "angelic-lattice-499717-f8",
-  });
-}
+const app =
+  getApps().length === 0
+    ? initializeApp({
+        projectId: process.env.FIREBASE_PROJECT_ID || "angelic-lattice-499717-f8",
+      })
+    : getApp();
 
-export const adminDb = admin.firestore();
-export const adminAuth = admin.auth();
+export const adminDb = getFirestore(app);
+export const adminAuth = getAuth(app);

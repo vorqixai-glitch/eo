@@ -13,9 +13,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<ThemeType>(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("moss-theme") as ThemeType;
-      return saved || "emerald"; // Emerald is the default beautiful signature theme for "Moss"
+      return saved || "cosmic"; // Cosmic is the default beautiful signature theme for "Moss"
     }
-    return "emerald";
+    return "cosmic";
   });
 
   const setTheme = (newTheme: ThemeType) => {

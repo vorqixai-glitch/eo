@@ -11,11 +11,11 @@ export const listArtifacts = createServerFn({ method: "POST" })
       .where("thread_id", "==", data.threadId)
       .orderBy("updated_at", "desc")
       .get();
-    
-    return snap.docs.map(d => ({
+
+    return snap.docs.map((d) => ({
       id: d.id,
-      ...d.data()
-    }));
+      ...d.data(),
+    })) as unknown;
   });
 
 export const getArtifact = createServerFn({ method: "POST" })
@@ -24,5 +24,5 @@ export const getArtifact = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const doc = await context.db.collection("artifacts").doc(data.id).get();
     if (!doc.exists) throw new Error("Artifact not found");
-    return { id: doc.id, ...doc.data() };
+    return { id: doc.id, ...doc.data() } as unknown;
   });

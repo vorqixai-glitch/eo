@@ -54,6 +54,9 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
         <p className="mt-2 text-sm text-muted-foreground">
           Something went wrong. Try refreshing or head back home.
         </p>
+        <pre className="mt-4 p-4 bg-red-100 text-red-900 text-left overflow-auto text-xs">
+          {error.message}
+        </pre>
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           <button
             onClick={() => {
@@ -146,6 +149,8 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
+import { HelmetProvider, Helmet } from "react-helmet-async";
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const router = useRouter();
@@ -167,11 +172,20 @@ function RootComponent() {
   }
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider>
-        <Outlet />
-        <Toaster richColors position="top-right" />
-      </ThemeProvider>
-    </QueryClientProvider>
+    <HelmetProvider>
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <Helmet>
+            <title>Emergent — AI chat workspace</title>
+            <meta
+              name="description"
+              content="Emergent is a fast, focused AI chat workspace. Create threads, talk to an AI assistant, and keep your conversations in one place."
+            />
+          </Helmet>
+          <Outlet />
+          <Toaster richColors position="top-right" />
+        </ThemeProvider>
+      </QueryClientProvider>
+    </HelmetProvider>
   );
 }

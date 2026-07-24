@@ -2,8 +2,19 @@ import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { listThreads, createThread, deleteThread, renameThread } from "@/lib/chat.functions";
-import { listProjects, deleteProject, moveThreadToProject } from "@/lib/projects.functions";
+import {
+  listThreads,
+  createThread,
+  deleteThread,
+  renameThread,
+  type DbThread,
+} from "@/lib/chat.functions";
+import {
+  listProjects,
+  deleteProject,
+  moveThreadToProject,
+  type DbProject,
+} from "@/lib/projects.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -18,6 +29,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { SidebarSkeleton } from "@/components/ui/skeleton-loaders";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -92,7 +104,7 @@ export function ChatSidebar() {
 
   const grouped = useMemo(() => {
     const map = new Map<string | null, typeof threadsQ.data>();
-    (threadsQ.data ?? []).forEach((t) => {
+    (threadsQ.data ?? []).forEach((t: DbThread) => {
       const key = t.project_id ?? null;
       const arr = map.get(key) ?? [];
       arr.push(t);
@@ -164,10 +176,7 @@ export function ChatSidebar() {
     navigate({ to: "/auth", replace: true });
   }
 
-  const initials =
-    (user?.user_metadata?.display_name as string | undefined)?.[0]?.toUpperCase() ??
-    user?.email?.[0]?.toUpperCase() ??
-    "?";
+  const initials = user?.displayName?.[0]?.toUpperCase() ?? user?.email?.[0]?.toUpperCase() ?? "?";
 
   const projects = projectsQ.data ?? [];
 
@@ -232,7 +241,7 @@ export function ChatSidebar() {
                         No projects yet
                       </DropdownMenuLabel>
                     )}
-                    {projects.map((p) => (
+                    {projects.map((p: DbProject) => (
                       <DropdownMenuItem
                         key={p.id}
                         onClick={() => moveThread(t.id, p.id)}
@@ -299,13 +308,9 @@ export function ChatSidebar() {
       </div>
 
       <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-2">
-        {(threadsQ.isLoading || projectsQ.isLoading) && (
-          <div className="flex items-center justify-center py-6 text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-          </div>
-        )}
+        {(threadsQ.isLoading || projectsQ.isLoading) && <SidebarSkeleton />}
 
-        {projects.map((p) => {
+        {projects.map((p: DbProject) => {
           const items = grouped.get(p.id) ?? [];
           const isCollapsed = collapsed[p.id];
           return (

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { getArtifact } from "@/lib/artifacts.functions";
 import { Button } from "@/components/ui/button";
+import { ArtifactSkeleton } from "@/components/ui/skeleton-loaders";
 import { Copy, Download, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
@@ -77,11 +78,7 @@ export function ArtifactPane({ artifactId, onClose }: { artifactId: string; onCl
       </header>
 
       <div className="flex-1 min-h-0 overflow-auto">
-        {q.isLoading && (
-          <div className="flex items-center justify-center h-full">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          </div>
-        )}
+        {q.isLoading && <ArtifactSkeleton />}
         {artifact && <ArtifactBody artifact={artifact} />}
       </div>
     </aside>

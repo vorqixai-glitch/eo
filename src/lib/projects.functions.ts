@@ -4,6 +4,15 @@ import { z } from "zod";
 import { FieldValue } from "firebase-admin/firestore";
 import crypto from "crypto";
 
+export type DbProject = {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string | null;
+  system_prompt: string | null;
+  created_at: string;
+  updated_at: string;
+};
 export const listProjects = createServerFn({ method: "GET" })
   .middleware([requireFirebaseAuth])
   .handler(async ({ context }) => {
@@ -12,11 +21,11 @@ export const listProjects = createServerFn({ method: "GET" })
       .where("user_id", "==", context.userId)
       .orderBy("updated_at", "desc")
       .get();
-    
-    return snap.docs.map(d => ({
+
+    return snap.docs.map((d) => ({
       id: d.id,
-      ...d.data()
-    }));
+      ...d.data(),
+    })) as DbProject[];
   });
 
 export const createProject = createServerFn({ method: "POST" })
@@ -38,7 +47,7 @@ export const createProject = createServerFn({ method: "POST" })
       description: data.description ?? null,
       system_prompt: data.system_prompt ?? null,
       created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      updated_at: new Date().toISOString(),
     };
     await context.db.collection("projects").doc(id).set(docData);
     return { id, ...docData };
@@ -57,11 +66,11 @@ export const updateProject = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ data, context }) => {
-    const patch: any = { updated_at: new Date().toISOString() };
+    const patch: Record<string, string | null> = { updated_at: new Date().toISOString() };
     if (data.name !== undefined) patch.name = data.name;
     if (data.description !== undefined) patch.description = data.description;
     if (data.system_prompt !== undefined) patch.system_prompt = data.system_prompt;
-    
+
     await context.db.collection("projects").doc(data.id).update(patch);
     return { ok: true };
   });
@@ -85,9 +94,9 @@ export const moveThreadToProject = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ data, context }) => {
-    await context.db.collection("threads").doc(data.threadId).update({ 
+    await context.db.collection("threads").doc(data.threadId).update({
       project_id: data.projectId,
-      updated_at: new Date().toISOString()
+      updated_at: new Date().toISOString(),
     });
     return { ok: true };
   });

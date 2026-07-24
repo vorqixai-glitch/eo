@@ -13,4 +13,7 @@ const firebaseConfig = {
 
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app, "ai-studio-pixelperfectrepl-b8cfac7d-18e8-4d90-9750-c07797b52a71");
+export const db = getFirestore(
+  app,
+  "ai-studio-pixelperfectrepl-b8cfac7d-18e8-4d90-9750-c07797b52a71",
+);
